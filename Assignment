@@ -1,0 +1,220 @@
+//o-19
+//Experimental Interfaces assignment- Arduino to Processing
+import processing.serial.*;
+
+final int NO_OBJECT_STATE = 0;
+final int SENSED_OBJECT_STATE = 1;
+final int LINES_COUNT = 10;
+
+int CurrentState = NO_OBJECT_STATE;
+WhiteLine[] WhiteLines = new WhiteLine[LINES_COUNT];
+RedLine[] RedLines = new RedLine[LINES_COUNT];
+
+final int PROXIMITY_THRESHOLD = 100;
+int ProximityValue = PROXIMITY_THRESHOLD + 1;
+final String PORT = "COM3";
+Serial ArduinoPort;
+
+void setup() {
+
+  size(2000, 1500);
+  
+  ArduinoPort = new Serial(this, PORT, 9600);
+
+  for (int i=0; i<LINES_COUNT; i++)
+  {
+    WhiteLines[i] = new WhiteLine(i);
+    RedLines[i] = new RedLine(i);
+  }
+}
+
+class WhiteLine {
+
+  final float STROKE_WEIGHT = (float)height / (LINES_COUNT * LINES_COUNT * 2);
+  final color STROKE = color(255);
+  final float MARGIN = (float)height / LINES_COUNT;
+  final float NORMAL_SPEED = 2;
+  final float EXIT_SPEED = 5;
+
+  float StartOffset;
+  float CurrentHeight;
+  int State = NO_OBJECT_STATE;
+
+  WhiteLine(int index)
+  {
+    StartOffset = (-index * MARGIN) - STROKE_WEIGHT/2;
+    ResetCurrentHeight();
+  }
+
+  void ResetCurrentHeight()
+  {
+    CurrentHeight = StartOffset;
+  }
+
+  void ChangeState(int newState)
+  {
+    if (State != newState && newState == NO_OBJECT_STATE)
+      ResetCurrentHeight();
+
+    State = newState;
+  }
+  
+  void Step()
+  {
+    if (CurrentHeight - STROKE_WEIGHT/2 < height)
+    {
+      if (State == NO_OBJECT_STATE)
+        CurrentHeight += NORMAL_SPEED;
+      else
+        CurrentHeight += EXIT_SPEED;
+    } 
+    else if (State == NO_OBJECT_STATE)
+    {
+      CurrentHeight = -STROKE_WEIGHT/2;
+    }
+  }
+
+  void Draw()
+  {
+    stroke(STROKE);
+    strokeWeight(STROKE_WEIGHT);
+    line(0, CurrentHeight, width, CurrentHeight);
+  }
+}
+
+class RedLine {
+
+  final float START_STROKE_WEIGHT = (float)height / (LINES_COUNT * LINES_COUNT);
+  final float END_STROKE_WEIGHT = (float)height / LINES_COUNT;  
+  final color STROKE = color(255, 0, 0);
+  final float MARGIN = (float)height / LINES_COUNT;
+  final float NORMAL_SPEED = 5;
+  final float EXIT_SPEED = 15;
+  final float MAX_DISTANCE = height;
+
+  float StartOffset;
+  float CurrentHeight;
+  float CurrentStrokeWeight = START_STROKE_WEIGHT;
+  int State = NO_OBJECT_STATE;
+  int Index;
+
+  RedLine(int index)
+  {
+    Index = index;
+    StartOffset = (-Index * MARGIN) - CurrentStrokeWeight/2;
+    ResetCurrentHeight();
+  }
+
+  void ResetCurrentHeight()
+  {
+    CurrentHeight = StartOffset;
+  }
+
+  void ChangeState(int newState)
+  {
+    if (State != newState && newState == SENSED_OBJECT_STATE)
+      ResetCurrentHeight();
+
+    State = newState;
+  }
+
+  void Step() 
+  {
+    // Move the line
+    float targetHeight = (height - END_STROKE_WEIGHT/2) - (Index * MARGIN);
+
+    if (State == SENSED_OBJECT_STATE)
+    {
+      if (CurrentHeight < targetHeight)
+      {
+        CurrentHeight += NORMAL_SPEED; 
+      }
+    } 
+    else if (State == NO_OBJECT_STATE)
+    {
+      if (0 < CurrentHeight && CurrentHeight < height + END_STROKE_WEIGHT/2)
+      {
+        CurrentHeight += EXIT_SPEED;
+      }
+    }
+
+    // Calculate dynamic stroke
+    float distance = abs(targetHeight - CurrentHeight);
+    
+    if (distance < 0)
+      distance = 0;
+    else if (MAX_DISTANCE < distance)
+      distance = MAX_DISTANCE;
+
+    CurrentStrokeWeight = END_STROKE_WEIGHT - (END_STROKE_WEIGHT - START_STROKE_WEIGHT) * distance/MAX_DISTANCE;
+  }
+
+  void Draw(color stroke)
+  {
+    //stroke(STROKE);
+    
+    //if (random(1) < 0.5)
+    //  stroke(255, 0, 0);
+    //else
+    //  stroke(0);
+      
+    stroke(stroke);
+    strokeWeight(CurrentStrokeWeight);
+    line(0, CurrentHeight, width, CurrentHeight);
+  }
+}
+
+void draw() {
+
+  background(0);
+  
+  // Read entire line from port
+  String inputLine = ArduinoPort.readStringUntil('\n');
+  if (inputLine != null)
+  {
+    // Remove unnecessary spaces
+    inputLine = inputLine.trim();
+    println("inputLine : '" + inputLine + "'");
+    
+    // Ensure a value is fetched
+    if (inputLine.length() > 0)
+      // Convert string to integer value
+      ProximityValue = Integer.parseInt(inputLine);
+  }
+  
+  if (ProximityValue < PROXIMITY_THRESHOLD)
+  {
+    CurrentState = SENSED_OBJECT_STATE;
+    println("ProximityValue: " + ProximityValue + " CurrentState: SENSED_OBJECT_STATE");
+  }
+  else
+  {
+    CurrentState = NO_OBJECT_STATE;
+    println("ProximityValue: " + ProximityValue + " CurrentState: NO_OBJECT_STATE");
+  }
+
+  for (int i=0; i<LINES_COUNT; i++)
+  {
+    WhiteLines[i].ChangeState(CurrentState);
+    RedLines[i].ChangeState(CurrentState);
+  }
+
+  for (int i=0; i<LINES_COUNT; i++)
+  {
+    WhiteLines[i].Step();
+    WhiteLines[i].Draw();
+  }
+  
+  color stroke;
+  
+  if (random(1) < 0.5)
+    stroke = color(255, 0, 0);
+  else
+    stroke = color(0);
+  
+  for (int i=0; i<LINES_COUNT; i++)
+  {
+    RedLines[i].Step();
+    RedLines[i].Draw(stroke);
+  }
+}
